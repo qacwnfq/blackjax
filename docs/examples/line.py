@@ -9,19 +9,60 @@ import tqdm
 jax.config.update('jax_enable_x64', True) 
 jax.config.update('jax_platform_name', 'cpu')
 
+def corrected_logX_fn(self, nsamples=None):
+    """Log-Volume.
+
+    The log of the prior volume contained within each iso-likelihood
+    contour.
+
+    Parameters
+    ----------
+    nsamples : int, optional
+        - If nsamples is not supplied, calculate mean value
+        - If nsamples is integer, draw nsamples from the distribution of
+          values inferred by nested sampling
+
+    Returns
+    -------
+    if nsamples is None:
+        WeightedSeries like self
+    elif nsamples is int:
+        WeightedDataFrame like self, columns range(nsamples)
+    """
+    import numpy
+    numpy.seterr(all='raise')
+    if nsamples is None:
+        t = np.log(self.nlive / (self.nlive + 1))
+    else:
+        r = np.log(np.random.rand(len(self), nsamples))
+        w = self.get_weights()
+        r = self.nlive._constructor_expanddim(r, self.index, weights=w)
+        t = r.divide(self.nlive, axis=0)
+        t.columns.name = 'samples'
+    # > or <
+    assert jnp.isinf(first_iteration_loglikelihoods).sum() + jnp.isnan(first_iteration_loglikelihoods).sum() == 0
+    correction_t = np.log(jnp.mean(first_iteration_loglikelihoods > first_contour))
+    logX = t.cumsum()
+    logX = logX - logX.iloc[n_delete] + (correction_t + logX.iloc[1])
+    logX.name = 'logX'
+    return logX
+
+
 rng_key = jax.random.PRNGKey(0)
 n_dims = 3
-n_live = 1000
-n_delete = 500
+factor = 2
+n_live = int(factor*1000)
+n_delete = int(factor*500)
 num_mcmc_steps = n_dims * 5
 
-# | Define data and likelihood
-x = jnp.linspace(-1, 1, 10)
+# | Define data and likelihoo
+n_data_points = 10
+x = jnp.linspace(-1, 1, n_data_points)
 m = 2.0
 c = 1.0
 sigma = 0.1
 key, rng_key = jax.random.split(rng_key)
-y =  m * x + c + sigma * jax.random.normal(key, (10,), dtype=jnp.float64)
+y =  m * x + c + sigma * jax.random.normal(key, (n_data_points,), dtype=jnp.float64)
 
 #plt.errorbar(x, y, yerr=sigma, fmt="o")
 #plt.plot(x, m * x + c)
@@ -114,10 +155,10 @@ samples.to_csv('line.csv')
 
 # BEGINN:
 # starting point are the current compression factors t_i
-print('compression factors')
+# print('compression factors')
 t = np.log(samples.nlive/(samples.nlive+1))
-print(t)
-print('t.shape', t.shape)
+# print(t)
+# print('t.shape', t.shape)
 # or the logX
 logX = samples.logX()
 
@@ -133,59 +174,20 @@ print('log_X1', logX.iloc[1])
 # Get first n_delete mcmc points to estimate volume
 first_iteration_loglikelihoods = jnp.ravel(dead.mcmc_chain.loglikelihood[:n_delete, :])
 contours = sorted(list(set([l for l in logL_birth.tolist() if not np.isinf(l)])))
-print('logL_births.shape', logL_birth.shape)
+# print('logL_births.shape', logL_birth.shape)
 print('contours', len(contours), contours)
 first_contour = contours[1]  # why shouldn't this be index 0??
 print('first_contour', first_contour)
 # print('chain log likelihoods', mcmc_chain.loglikelihood[:n_delete][chain_idx])
-print('sampled compression', jnp.mean(first_iteration_loglikelihoods<= first_contour), 'estimated', np.exp(log_t1))
+print('mcmc estimation of compression:', jnp.mean(first_iteration_loglikelihoods<= first_contour), 'estimated from beta:', np.exp(log_t1))
 
-print('original evidence', samples.logZ())
+print('n_live', n_live, 'n_delete', n_delete)
+print('original evidence', samples.logZ(), '+-', np.sqrt(samples.D_KL()/n_live))
 corrected_logX = logX
-def corrected_logX_fn(self, nsamples=None):
-        """Log-Volume.
-
-        The log of the prior volume contained within each iso-likelihood
-        contour.
-
-        Parameters
-        ----------
-        nsamples : int, optional
-            - If nsamples is not supplied, calculate mean value
-            - If nsamples is integer, draw nsamples from the distribution of
-              values inferred by nested sampling
-
-        Returns
-        -------
-        if nsamples is None:
-            WeightedSeries like self
-        elif nsamples is int:
-            WeightedDataFrame like self, columns range(nsamples)
-        """
-        if nsamples is None:
-            t = np.log(self.nlive / (self.nlive + 1))
-        else:
-            r = np.log(np.random.rand(len(self), nsamples))
-            w = self.get_weights()
-            r = self.nlive._constructor_expanddim(r, self.index, weights=w)
-            t = r.divide(self.nlive, axis=0)
-            t.columns.name = 'samples'
-        # > or <
-        log_compression_correction = np.log(jnp.mean(first_iteration_loglikelihoods > first_contour) - t[0])
-        print('correction',     log_compression_correction)
-        # TODO!! Make comparison with nan's robust
-        print('first it ll', first_iteration_loglikelihoods)
-        assert jnp.isinf(first_iteration_loglikelihoods).sum() + jnp.isnan(first_iteration_loglikelihoods).sum() == 0
-        correction_t = np.log(jnp.mean(first_iteration_loglikelihoods > first_contour))
-        logX = t.cumsum()
-        logX = logX - logX.iloc[n_delete] + (correction_t+logX.iloc[1])
-        logX.name = 'logX'
-        return logX
 
 # Overwrite the logX method on this instance
 samples.logX = types.MethodType(corrected_logX_fn, samples)
 print('corrected evidence', samples.logZ())
-print('uncertainty', np.sqrt(samples.D_KL()/n_live))
 #
 
 # TODO: show volume estimation is improved

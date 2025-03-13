@@ -101,6 +101,7 @@ def build_kernel(
         new_pos = jax.tree.map(lambda x: x[live_idx], state.particles)
         # TODO: are the deepcopies really required?
         import copy
+        # TODO: we only need to copy mcmc_start_logL
         mcmc_start = copy.deepcopy(new_pos)
         new_logl = state.logL[live_idx]
         mcmc_start_logl  = copy.deepcopy(new_logl)
