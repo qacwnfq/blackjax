@@ -33,9 +33,9 @@ class NSInfo(NamedTuple):
     update_info: NamedTuple
     mcmc_chain: NamedTuple
     # TODO: remove these one we are sure it works
-    mcmc_chain_start_pid: Array
-    mcmc_chain_end_pid: Array
-    mcmc_start: ArrayTree  # TODO: guessed type
+    # mcmc_chain_start_pid: Array
+    # mcmc_chain_end_pid: Array
+    # mcmc_start: ArrayTree  # TODO: guessed type
 
 
 def init(particles: ArrayLikeTree, loglikelihood_fn, logL_star=-jnp.inf) -> NSState:
@@ -126,11 +126,12 @@ def build_kernel(
             sample_keys, new_pos, new_logl
         )
 
-        mcmc_chain = mcmc_chain._replace(position = {
-            key: jnp.concatenate([jnp.expand_dims(mcmc_start[key], axis=1), mcmc_chain.position[key]], axis=1)
-            for key in mcmc_chain.position.keys()
-        })
-        mcmc_chain = mcmc_chain._replace(loglikelihood = jnp.concatenate([jnp.expand_dims(mcmc_start_logl, axis=1), mcmc_chain.loglikelihood], axis=1))
+        # TODO: reinclude in case we want starting point
+        # mcmc_chain = mcmc_chain._replace(position = {
+        #     key: jnp.concatenate([jnp.expand_dims(mcmc_start[key], axis=1), mcmc_chain.position[key]], axis=1)
+        #     for key in mcmc_chain.position.keys()
+        # })
+        # mcmc_chain = mcmc_chain._replace(loglikelihood = jnp.concatenate([jnp.expand_dims(mcmc_start_logl, axis=1), mcmc_chain.loglikelihood], axis=1))
 
         logL_births = logL0 * jnp.ones(dead_idx.shape)
 
@@ -169,7 +170,7 @@ def build_kernel(
             logZ=logZ_dead,
             logZ_live=logZ_live,
         )
-        info = NSInfo(dead_particles, dead_logL, dead_logL_birth, dead_pid, new_state_info, mcmc_chain, live_pid, pid[dead_idx], mcmc_start)
+        info = NSInfo(dead_particles, dead_logL, dead_logL_birth, dead_pid, new_state_info, mcmc_chain)
         return new_state, info
 
     return kernel

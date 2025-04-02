@@ -135,15 +135,17 @@ def finalise(state, dead):
     dead_map = jax.tree.map(
         lambda *args: jnp.concatenate(args),
         *(
-            dead
-            + [
-                NSInfo(
-                    state.sampler_state.particles,
-                    state.sampler_state.logL,
-                    state.sampler_state.logL_birth,
-                    dead[-1].update_info,
-                )
-            ]
+                dead
+                + [
+                    NSInfo(
+                        state.sampler_state.particles,
+                        state.sampler_state.logL,
+                        state.sampler_state.logL_birth,
+                        state.sampler_state.pid,
+                        dead[-1].update_info,
+                        dead[-1].mcmc_chain,
+                    )
+                ]
         ),
     )
 
@@ -169,3 +171,32 @@ def sample(rng_key, dead_map, n=1000):
         replace=True,
     )
     return jax.tree_util.tree_map(lambda leaf: leaf[indices], dead_map.particles)
+
+
+def logZ(key: jax.random.PRNGKey, dead: NSInfo, samples=100, beta=1.0):
+    """
+    Compute the log evidence (log Z) from nested sampling dead points.
+
+    This function estimates the log evidence by Monte Carlo integration
+    over the iso-likelihood contours. It uses the log prior volume differences
+    computed by `logX` and the corresponding log-likelihoods.
+
+    Parameters
+    ----------
+    key : jax.random.PRNGKey
+        A JAX random key.
+    dead : NSInfo
+        An object containing the nested sampling dead points, including
+        log-likelihood values.
+    samples : int, optional
+        Number of Monte Carlo samples to draw per dead point, by default 100.
+    beta : float, optional
+        The inverse temperature, scaling the log-likelihood (default 1.0).
+
+    Returns
+    -------
+    logZ : jnp.ndarray
+        The estimated log evidence.
+    """
+    logw = log_weights(key, dead, samples=samples, beta=beta)
+    return jax.scipy.special.logsumexp(logw, axis=0)

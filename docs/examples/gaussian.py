@@ -1,14 +1,14 @@
 import types
-import matplotlib.pyplot as plt
-import arviz as az
 
 import blackjax
 import blackjax.ns.utils as nsutils
-from diagnostics import nested_rhat
 import jax
 import jax.numpy as jnp
 import tqdm
 
+
+jax.config.update('jax_enable_x64', True) 
+jax.config.update('jax_platform_name', 'cpu')
 
 def corrected_logX_fn(self, nsamples=None):
     """Log-Volume.
@@ -53,10 +53,18 @@ def corrected_logX_fn(self, nsamples=None):
     return logX
 
 
-jax.config.update('jax_enable_x64', True)
-jax.config.update('jax_platform_name', 'cpu')
-
 rng_key = jax.random.PRNGKey(0)
+
+ndims = 5
+nlive = 100
+nsamps = 10000
+logLmax = -1400
+mean = 0.5 * jnp.ones(ndims)
+cov = jax.scipy.stats.invwishart.rvs(df=ndims+2, scale=0.01**2*jnp.eye(ndims))
+samples = correlated_gaussian(nlive, mean, cov, logLmax=logLmax)
+samples = samples.truncate(len(samples)-2000)
+
+
 n_dims = 3
 factor = 1
 n_live = int(factor*1000)
@@ -71,9 +79,6 @@ c = 1.0
 sigma = 0.1
 key, rng_key = jax.random.split(rng_key)
 y =  m * x + c + sigma * jax.random.normal(key, (n_data_points,), dtype=jnp.float64)
-
-#plt.errorbar(x, y, yerr=sigma, fmt="o")
-#plt.plot(x, m * x + c)
 
 @jax.jit
 def loglikelihood_fn(p):
@@ -131,8 +136,9 @@ with tqdm.tqdm(desc="Dead points", unit=" dead points") as pbar:
         dead.append(dead_info)
         pbar.update(n_delete)  # Update progress bar
 
-# _dead = nsutils.finalise(state, dead)
-# print('blackjax logZ', jnp.mean(nsutils.logZ(rng_key, _dead, samples=int(1e3))))
+
+_dead = nsutils.finalise(state, dead)
+print('blackjax logZ', nsutils.logZ(rng_key, _dead, samples=10000))
 
 # replace by utils: finalise from util.py to zip NestedInfo together
 # | anesthetic post-processing
@@ -161,10 +167,6 @@ samples = NestedSamples(data, logL=logL, logL_birth=logL_birth, columns=columns)
 # starting point are the current compression factors t_i
 # print('compression factors')
 t = np.log(samples.nlive/(samples.nlive+1))
-
-skilling_estimate = jnp.sum(t[:n_delete].values)
-skilling_error = jnp.sqrt(skilling_estimate)
-print('skilling', skilling_estimate, skilling_error)
 # print(t)
 # print('t.shape', t.shape)
 # or the logX
@@ -176,34 +178,7 @@ print('t1', np.exp(log_t1))
 print('log_X0', logX.iloc[0])
 print('log_X1', logX.iloc[1])
 # estimating t1 using mcmc samples with the loglikelihoods of the mcmc samples -- this is likely the one you need
-numpy_samples = {
-    k: np.array(v[:n_delete,:]) for k, v in dead.mcmc_chain.position.items()
-}
-
-K = 10
-nested_rhat_values = {
-    k: nested_rhat(numpy_samples[k], K) for k,v in numpy_samples.items()
-}
-print('nested_rhat_values')
-print(nested_rhat_values)
-
-print(numpy_samples['c'].shape)
-idata = az.from_dict(numpy_samples)
-print('msce (arviz)', az.mcse(idata))
-az.plot_mcse(idata)
-plt.show()
-
-# K = 10  # For instance, partition the chains into 10 superchains.
-# print(samples)
-# c = samples[['c']].values
-# m = samples[['m']].values
-# sigma = samples[['sigma']].values
-# print(c)
-# nested_rhat = nested_rhat(c , K)
-# print('nested rhat', nested_rhat)
-
-exit(0)
-
+# print('dead mcmc chain loglikelihood shape', dead.mcmc_chain.loglikelihood.shape)
 
 # print(dead.mcmc_chain.loglikelihood.shape)
 # Get first n_delete mcmc points to estimate volume
@@ -217,7 +192,7 @@ print('first_contour', first_contour)
 print('mcmc estimation of compression:', jnp.mean(first_iteration_loglikelihoods<= first_contour), 'estimated from beta:', np.exp(log_t1))
 
 print('n_live', n_live, 'n_delete', n_delete)
-print('original evidence', np.mean(samples.logZ())) # , '+-', np.sqrt(samples.D_KL()/n_live))
+print('original evidence', samples.logZ(10000), '+-', np.sqrt(samples.D_KL()/n_live))
 corrected_logX = logX
 
 # Overwrite the logX method on this instance
