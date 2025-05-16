@@ -6,7 +6,8 @@ from jax.scipy.linalg import inv, solve
 import blackjax
 from blackjax.ns.utils import log_weights
 
-# jax.config.update("jax_enable_x64", True)
+jax.config.update('jax_enable_x64', True)
+jax.config.update('jax_platform_name', 'cpu')
 
 rng_key = jax.random.PRNGKey(0)
 d = 20
@@ -120,3 +121,4 @@ logZs = jax.scipy.special.logsumexp(logw, axis=0)
 print(f"Analytic evidence: {log_analytic_evidence:.2f}")
 print(f"Runtime evidence: {state.sampler_state.logZ:.2f}")  # type: ignore[attr-defined]
 print(f"Estimated evidence: {logZs.mean():.2f} +- {logZs.std():.2f}")
+print(f"Estimated evidence with MCMC volume correction: {logZs.mean():.2f} +- {logZs.std():.2f}")

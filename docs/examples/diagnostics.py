@@ -72,6 +72,12 @@ def nested_rhat(samples: np.ndarray, K: int) -> float:
     # The nested R̂ is the maximum of the two R̂ values.
     return max(rhat_chains, rhat_super)
 
+def lower_bound_ess(nested_rhat, n_subchains, samples_per_chain):
+    lower_bound_ess = {}
+    for k,v in nested_rhat.items():
+        lower_bound_ess[k] = 1./n_subchains * (1-1./samples_per_chain)/(v**2-1) - 1./samples_per_chain
+    return lower_bound_ess
+
 
 # Example usage:
 if __name__ == "__main__":

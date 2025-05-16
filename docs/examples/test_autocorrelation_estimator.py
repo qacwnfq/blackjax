@@ -4,7 +4,7 @@ import arviz as az
 
 import blackjax
 import blackjax.ns.utils as nsutils
-from diagnostics import nested_rhat, lower_bound_ess
+from diagnostics import nested_rhat, lower_bound_ess,
 import jax
 import jax.numpy as jnp
 import tqdm
@@ -73,16 +73,14 @@ key, rng_key = jax.random.split(rng_key)
 y = m * x + c + sigma * jax.random.normal(key, (n_data_points,), dtype=jnp.float64)
 
 
-# plt.errorbar(x, y, yerr=sigma, fmt="o")
-# plt.plot(x, m * x + c)
-
+#########
+# BEGIN problem
+#########
 @jax.jit
 def loglikelihood_fn(p):
     return jax.scipy.stats.multivariate_normal.logpdf(y, p["m"] * x + p["c"], p["sigma"])
 
-
 # | Define the prior function
-
 m_min, m_max = -10.0, 10.0
 c_min, c_max = -10.0, 10.0
 sigma_min, sigma_max = 0.0, 10.0
@@ -98,7 +96,10 @@ def logprior_fn(p):
     return logprior
 
 
-# | Sample live points from the prior
+#########
+# END problem
+#########
+
 rng_key, init_key = jax.random.split(rng_key, 2)
 init_keys = jax.random.split(init_key, n_dims)
 particles = {
@@ -120,6 +121,7 @@ nested_sampler = blackjax.ns.adaptive.nss(
 
 state = nested_sampler.init(particles, loglikelihood_fn)
 
+
 @jax.jit
 def one_step(carry, xs):
     state, k = carry
@@ -127,7 +129,8 @@ def one_step(carry, xs):
     state, dead_point = nested_sampler.step(subk, state)
     return (state, k), dead_point
 
-    # | Run Nested Sampling
+
+# | Run Nested Sampling
 dead = []
 with tqdm.tqdm(desc="Dead points", unit=" dead points") as pbar:
     while not state.sampler_state.logZ_live - state.sampler_state.logZ < -3:
@@ -135,12 +138,13 @@ with tqdm.tqdm(desc="Dead points", unit=" dead points") as pbar:
         dead.append(dead_info)
         pbar.update(n_delete)  # Update progress bar
 
-finalised_dead = nsutils.finalise(state, dead)
-print('blackjax logZ', jnp.mean(nsutils.logZ(rng_key, finalised_dead, samples=int(1e3))))
-print(finalised_dead.mcmc_chain.position['c'].shape)
-exit(0)
+blackjax.diagnostics.effective_sample_size()
+
+# _dead = nsutils.finalise(state, dead)
+# print('blackjax logZ', jnp.mean(nsutils.logZ(rng_key, _dead, samples=int(1e3))))
 
 # replace by utils: finalise from util.py to zip NestedInfo together
+# | anesthetic post-processing
 from anesthetic import NestedSamples
 import numpy as np
 
@@ -160,22 +164,10 @@ data = np.concatenate([
     np.column_stack([v for v in live.particles.values()])
 ], axis=0)
 
-print('data', data.shape, '\n', data)
-print('comparing shape', dead.mcmc_chain.loglikelihood[:, :].shape)
-first_iteration_loglikelihoods = jnp.ravel(dead.mcmc_chain.loglikelihood[:n_delete, :])
-contours = sorted(list(set([l for l in logL_birth.tolist() if not np.isinf(l)])))
-
-# # Get first n_delete mcmc points to estimate volume
-# first_iteration_loglikelihoods = jnp.ravel(dead.mcmc_chain.loglikelihood[:n_delete, :])
-# print('contours', len(contours), contours)
-# first_contour = contours[1]  # why shouldn't this be index 0??
-# print('first_contour', first_contour)
-exit(0)
-
 columns = list(dead.particles.keys())
 samples = NestedSamples(data, logL=logL, logL_birth=logL_birth, columns=columns)
 
-# BEGINN:
+# BEGIN:
 # starting point are the current compression factors t_i
 # print('compression factors')
 t = np.log(samples.nlive / (samples.nlive + 1))
@@ -233,6 +225,7 @@ exit(0)
 # Get first n_delete mcmc points to estimate volume
 first_iteration_loglikelihoods = jnp.ravel(dead.mcmc_chain.loglikelihood[:n_delete, :])
 contours = sorted(list(set([l for l in logL_birth.tolist() if not np.isinf(l)])))
+# print('logL_births.shape', logL_birth.shape)
 print('contours', len(contours), contours)
 first_contour = contours[1]  # why shouldn't this be index 0??
 print('first_contour', first_contour)

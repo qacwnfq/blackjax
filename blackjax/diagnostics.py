@@ -204,3 +204,42 @@ def effective_sample_size(
     ess = ess_raw / tau_hat
 
     return ess.squeeze()
+
+def estimate_effective_sample_size(
+        input_array: ArrayLike, chain_axis: int = 0, sample_axis: int = 1
+) -> Array:
+    """Estimates the effective sample size for many short chains (ess).
+
+    Parameters
+    ----------
+    input_array:
+        An array representing multiple chains of MCMC samples. The array must
+        contains a chain dimension and a sample dimension.
+    chain_axis
+        The axis indicating the multiple chains. Default to 0.
+    sample_axis
+        The axis indicating a single chain of MCMC samples. Default to 1.
+
+    Returns
+    -------
+    NDArray of the resulting statistics (ess), with the chain and sample dimensions squeezed.
+
+    Notes
+    -----
+    The basic ess (:math:`N_{\\mathit{eff}}`) diagnostic is computed by:
+
+    .. math:: \\hat{N}_{\\mathit{eff}} = \\frac{MN}{\\hat{\\tau}}
+
+    .. math:: \\hat{\\tau} = -1 + 2 \\sum_{t'=0}^K \\hat{P}_{t'}
+
+    where :math:`M` is the number of chains, :math:`N` the number of draws,
+    :math:`\\hat{\\rho}_t` is the estimated _autocorrelation at lag :math:`t`, and
+    :math:`K` is the last integer for which :math:`\\hat{P}_{K} = \\hat{\\rho}_{2K} +
+    \\hat{\\rho}_{2K+1}` is still positive :cite:p:`stan_ess,gelman1995bayesian`.
+
+    The current implementation is similar to Stan, which uses Geyer's initial monotone sequence
+    criterion :cite:p:`geyer1992practical,geyer2011introduction`.
+
+    """
+    # TODO
+    pass
