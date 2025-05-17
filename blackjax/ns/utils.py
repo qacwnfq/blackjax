@@ -100,48 +100,25 @@ def logX(key: jax.random.PRNGKey, dead: NSInfo, samples=100):
     return logX, logdX
 
 
-def improve_logX_estimate(self, logX, nsamples=None):
-    def logX(key: jax.random.PRNGKey, dead: NSInfo, samples=100):
-
-        """Improves the estimate of the log of the prior volume
-
-    This function uses the MCMC samples from a nested sampling run to refine the log volume estimates.
-
-    Parameters
-    ----------
-    nsamples : int, optional
-        - If nsamples is not supplied, calculate mean value
-        - If nsamples is integer, draw nsamples from the distribution of
-          values inferred by nested sampling
-
-    Returns
-    -------
-    if nsamples is None:
-        WeightedSeries like self
-    elif nsamples is int:
-        WeightedDataFrame like self, columns range(nsamples)
-    """
-    # import numpy
-    # numpy.seterr(all='raise')
-    if nsamples is None:
-        t = np.log(self.nlive / (self.nlive + 1))
-    else:
-        r = np.log(np.random.rand(len(self), nsamples))
-        w = self.get_weights()
-        r = self.nlive._constructor_expanddim(r, self.index, weights=w)
-        t = r.divide(self.nlive, axis=0)
-        t.columns.name = 'samples'
-    # > or <
-    assert jnp.isinf(first_iteration_loglikelihoods).sum() + jnp.isnan(first_iteration_loglikelihoods).sum() == 0
-    correction_t = np.log(jnp.mean(first_iteration_loglikelihoods > first_contour))
-    print('mcmc_ratio', jnp.mean(first_iteration_loglikelihoods > first_contour))
-    logX = t.cumsum()
-    skilling_t = np.cumsum(t[:n_delete]).iloc[-1]
-    print(np.exp(skilling_t))
-    print('rescaling logX by', correction_t / skilling_t)
-    logX = logX * (correction_t / skilling_t)
-    logX.name = 'logX'
-    return logX
+def mcmc_logX(key: jax.random.PRNGKey, dead: NSInfo, samples=100):
+    n_delete = 500
+    skilling_logX, skilling_logdX = logX(key, dead, samples)
+    contours = sorted(list(set([l for l in dead.logL_birth.tolist() if not jnp.isinf(l)])))
+    contour = contours[1]
+    chain_likelihoods = jnp.ravel(dead.mcmc_chain.loglikelihood[:n_delete, :])
+    t_mcmc = jnp.sum(chain_likelihoods > contour) / len(chain_likelihoods)
+    # correction_t = np.log(jnp.mean(first_iteration_loglikelihoods > first_contour))
+    # print('mcmc_ratio', jnp.mean(first_iteration_loglikelihoods > first_contour))
+    # logX = t.cumsum()
+    # skilling_t = np.cumsum(t[:n_delete]).iloc[-1]
+    # print(np.exp(skilling_t))
+    # print('rescaling logX by', correction_t / skilling_t)
+    # logX = logX * (correction_t / skilling_t)
+    # logX.name = 'logX'
+    print('skilling logdX', skilling_logdX)
+    mcmc_logX = skilling_logX # skilling_logX * (t_mcmc / )
+    mcmc_logdX = skilling_logdX
+    return mcmc_logX, mcmc_logdX
 
 
 def log_weights(key: jax.random.PRNGKey, dead: NSInfo, samples=100, beta=1.0):

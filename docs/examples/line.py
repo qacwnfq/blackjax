@@ -63,7 +63,7 @@ n_live = int(factor * 1000)
 n_delete = int(factor * 500)
 num_mcmc_steps = n_dims * 60
 
-# | Define data and likelihoo
+# | Define data and likelihood
 n_data_points = 10
 x = jnp.linspace(-1, 1, n_data_points)
 m = 2.0
@@ -79,6 +79,8 @@ y = m * x + c + sigma * jax.random.normal(key, (n_data_points,), dtype=jnp.float
 @jax.jit
 def loglikelihood_fn(p):
     return jax.scipy.stats.multivariate_normal.logpdf(y, p["m"] * x + p["c"], p["sigma"])
+
+
 
 
 # | Define the prior function
@@ -136,11 +138,13 @@ with tqdm.tqdm(desc="Dead points", unit=" dead points") as pbar:
         pbar.update(n_delete)  # Update progress bar
 
 finalised_dead = nsutils.finalise(state, dead)
-print('blackjax logZ', jnp.mean(nsutils.logZ(rng_key, finalised_dead, samples=int(1e3))))
-print(finalised_dead.mcmc_chain.position['c'].shape)
-print(finalised_dead.mcmc_chain.position['m'].shape)
-print(finalised_dead.mcmc_chain.position['sigma'].shape)
-print(type(finalised_dead.mcmc_chain.position['c']))
+print('skilling logX', jnp.mean(nsutils.logX(rng_key, finalised_dead, samples=int(1e3))[0]))
+print('mcmc logX', jnp.mean(nsutils.mcmc_logX(rng_key, finalised_dead, samples=int(1e3))[0]))
+# print('blackjax logZ', jnp.mean(nsutils.logZ(rng_key, finalised_dead, samples=int(1e3))))
+# print(finalised_dead.mcmc_chain.position['c'].shape)
+# print(finalised_dead.mcmc_chain.position['m'].shape)
+# print(finalised_dead.mcmc_chain.position['sigma'].shape)
+# print(type(finalised_dead.mcmc_chain.position['c']))
 exit(0)
 
 # replace by utils: finalise from util.py to zip NestedInfo together
