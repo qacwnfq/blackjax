@@ -138,6 +138,9 @@ with tqdm.tqdm(desc="Dead points", unit=" dead points") as pbar:
 finalised_dead = nsutils.finalise(state, dead)
 print('blackjax logZ', jnp.mean(nsutils.logZ(rng_key, finalised_dead, samples=int(1e3))))
 print(finalised_dead.mcmc_chain.position['c'].shape)
+print(finalised_dead.mcmc_chain.position['m'].shape)
+print(finalised_dead.mcmc_chain.position['sigma'].shape)
+print(type(finalised_dead.mcmc_chain.position['c']))
 exit(0)
 
 # replace by utils: finalise from util.py to zip NestedInfo together

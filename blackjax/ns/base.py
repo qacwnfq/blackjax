@@ -32,10 +32,6 @@ class NSInfo(NamedTuple):
     pid: Array  # particle ID
     update_info: NamedTuple
     mcmc_chain: NamedTuple
-    # TODO: remove these one we are sure it works
-    # mcmc_chain_start_pid: Array
-    # mcmc_chain_end_pid: Array
-    # mcmc_start: ArrayTree  # TODO: guessed type
 
 
 def init(particles: ArrayLikeTree, loglikelihood_fn, logL_star=-jnp.inf) -> NSState:
@@ -99,12 +95,7 @@ def build_kernel(
         live_pid = state.pid[live_idx]
 
         new_pos = jax.tree.map(lambda x: x[live_idx], state.particles)
-        # TODO: are the deepcopies really required?
-        import copy
-        # TODO: we only need to copy mcmc_start_logL
-        mcmc_start = copy.deepcopy(new_pos)
         new_logl = state.logL[live_idx]
-        mcmc_start_logl  = copy.deepcopy(new_logl)
 
         kernel = mcmc_step_fn(logprior_fn, loglikelihood_fn, logL0, **mcmc_parameters)
         rng_key, sample_key = jax.random.split(rng_key)
@@ -118,6 +109,11 @@ def build_kernel(
 
             keys = jax.random.split(rng_key, num_mcmc_steps)
             last_state, (info, new_states) = jax.lax.scan(body_fn, state, keys)
+            # prepends the initial state to the mcmc chains
+            new_states = jax.tree.map(
+                lambda x0, xs: jnp.concatenate([x0[None, ...], xs], axis=0),
+                state, new_states
+            )
             return last_state, (info, new_states)
 
         sample_keys = jax.random.split(sample_key, dead_idx.shape[0])
@@ -125,13 +121,6 @@ def build_kernel(
         new_state, (new_state_info, mcmc_chain) = jax.vmap(mcmc_kernel)(
             sample_keys, new_pos, new_logl
         )
-
-        mcmc_chain = mcmc_chain._replace(position = {
-            key: jnp.concatenate([jnp.expand_dims(mcmc_start[key], axis=1), mcmc_chain.position[key]], axis=1)
-            for key in mcmc_chain.position.keys()
-        })
-        mcmc_chain = mcmc_chain._replace(loglikelihood = jnp.concatenate([jnp.expand_dims(mcmc_start_logl, axis=1), mcmc_chain.loglikelihood], axis=1))
-
 
         logL_births = logL0 * jnp.ones(dead_idx.shape)
 
@@ -170,7 +159,6 @@ def build_kernel(
             logZ=logZ_dead,
             logZ_live=logZ_live,
         )
-        # TODO: problem is probably that mcmc_chain is SliceState and NOT named tuple!!
         info = NSInfo(dead_particles, dead_logL, dead_logL_birth, dead_pid, new_state_info, mcmc_chain)
         return new_state, info
 

@@ -176,19 +176,6 @@ def log_weights(key: jax.random.PRNGKey, dead: NSInfo, samples=100, beta=1.0):
 
 
 def finalise(state, dead):
-    print('finalizing')
-    for i, d in enumerate(dead):
-        print('dead', i, len(d.mcmc_chain.loglikelihood))
-    print('state c', len(
-            NSInfo(
-                state.sampler_state.particles,
-                state.sampler_state.logL,
-                state.sampler_state.logL_birth,
-                state.sampler_state.pid,
-                dead[-1].update_info,
-                dead[-1].mcmc_chain,
-            ).particles['c']
-    ))
     dead_map = jax.tree.map(
         lambda *args: jnp.concatenate(args),
         *(
@@ -205,7 +192,6 @@ def finalise(state, dead):
                 ]
         ),
     )
-    print('deadmap length', len(dead_map.particles['c']))
     return dead_map
 
 
