@@ -57,7 +57,20 @@ def compute_nlive(info: NSInfo):
     return nlive
 
 
-def logX(key: jax.random.PRNGKey, dead: NSInfo, samples=100):
+def compute_log_compression(key: jax.random.PRNGKey, dead: NSInfo, samples=100):
+    key, subkey = jax.random.split(key)
+    min_val = jnp.finfo(dead.logL.dtype).tiny
+    r = jnp.log(
+        jax.random.uniform(subkey, shape=(dead.logL.shape[0], samples)).clip(
+            min_val, 1 - min_val
+        )
+    )
+    nlive = compute_nlive(dead)
+    t = r / nlive[:, jnp.newaxis]
+    return t
+
+
+def logX(key: jax.random.PRNGKey, dead: NSInfo, samples=100, t=None):
     """Compute the log of the prior volume within iso-likelihood contours.
 
     This function calculates the log volume of the prior contained within
@@ -72,6 +85,8 @@ def logX(key: jax.random.PRNGKey, dead: NSInfo, samples=100):
         information of the dead points in nested sampling.
     samples : int, optional
         The number of samples to draw. Default is 100.
+    t: double, optional
+        log compression factors. Will compute them again if None are passed
 
     Returns
     -------
@@ -80,44 +95,42 @@ def logX(key: jax.random.PRNGKey, dead: NSInfo, samples=100):
     logdX : jnp.ndarray
         Logarithm of the difference in volume for each contour.
     """
-    key, subkey = jax.random.split(key)
-    min_val = jnp.finfo(dead.logL.dtype).tiny
-    r = jnp.log(
-        jax.random.uniform(subkey, shape=(dead.logL.shape[0], samples)).clip(
-            min_val, 1 - min_val
-        )
-    )
-
-    nlive = compute_nlive(dead)
-    t = r / nlive[:, jnp.newaxis]
+    if t is None:
+        t = compute_log_compression(key, dead, samples)
     logX = jnp.cumsum(t, axis=0)
+    return logX, logdX(logX)
 
+
+def logdX(logX):
+    """TODO"""
     logXp = jnp.concatenate([jnp.zeros((1, logX.shape[1])), logX[:-1]], axis=0)
     logXm = jnp.concatenate([logX[1:], jnp.full((1, logX.shape[1]), -jnp.inf)], axis=0)
     log_diff = logXm - logXp
-    # logdX = jnp.log1p(-jnp.exp(log_diff).clip(max=1.0)) + logXp - jnp.log(2)
     logdX = log1mexp(log_diff) + logXp - jnp.log(2)
-    return logX, logdX
+    return logdX
 
 
 def mcmc_logX(key: jax.random.PRNGKey, dead: NSInfo, samples=100):
     n_delete = 500
-    skilling_logX, skilling_logdX = logX(key, dead, samples)
+    t_all = compute_log_compression(key, dead, samples)
+    skilling_logX, skilling_logdX = logX(key, dead, samples, t=t_all)
     contours = sorted(list(set([l for l in dead.logL_birth.tolist() if not jnp.isinf(l)])))
     contour = contours[1]
     chain_likelihoods = jnp.ravel(dead.mcmc_chain.loglikelihood[:n_delete, :])
-    t_mcmc = jnp.sum(chain_likelihoods > contour) / len(chain_likelihoods)
+    t_mcmc = jnp.log(jnp.sum(chain_likelihoods > contour) / len(chain_likelihoods))
+    print('t_all shape', t_all.shape)
+    t_skilling = jnp.mean(jnp.sum(t_all[:n_delete], axis=0))
     # correction_t = np.log(jnp.mean(first_iteration_loglikelihoods > first_contour))
     # print('mcmc_ratio', jnp.mean(first_iteration_loglikelihoods > first_contour))
     # logX = t.cumsum()
     # skilling_t = np.cumsum(t[:n_delete]).iloc[-1]
-    # print(np.exp(skilling_t))
+    print('t_skilling',t_skilling)
+    print('t_mcmc', t_mcmc)
     # print('rescaling logX by', correction_t / skilling_t)
     # logX = logX * (correction_t / skilling_t)
     # logX.name = 'logX'
-    print('skilling logdX', skilling_logdX)
-    mcmc_logX = skilling_logX # skilling_logX * (t_mcmc / )
-    mcmc_logdX = skilling_logdX
+    mcmc_logX = skilling_logX * (t_mcmc / t_skilling)
+    mcmc_logdX = logdX(mcmc_logX)
     return mcmc_logX, mcmc_logdX
 
 
