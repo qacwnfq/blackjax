@@ -4,7 +4,7 @@ import tqdm
 from jax.scipy.linalg import inv, solve
 
 import blackjax
-from blackjax.ns.utils import log_weights
+from blackjax.ns.utils import logZ
 
 jax.config.update('jax_enable_x64', True)
 jax.config.update('jax_platform_name', 'cpu')
@@ -115,10 +115,10 @@ dead = jax.tree.map(lambda *args: jnp.concatenate(args), *dead)
 
 # From here we can use the utils to compute the log weights and the evidence of the accumulated dead points
 # sampling log weights lets us get a sensible error on the evidence estimate
-logw = log_weights(rng_key, dead)  # type: ignore[arg-type]
-logZs = jax.scipy.special.logsumexp(logw, axis=0)
+logZ_skilling = logZ(rng_key, dead, samples=100)
+logZ_mcmc = logZ(rng_key, dead, samples=100, volume_correction=True)
 
 print(f"Analytic evidence: {log_analytic_evidence:.2f}")
 print(f"Runtime evidence: {state.sampler_state.logZ:.2f}")  # type: ignore[attr-defined]
-print(f"Estimated evidence: {logZs.mean():.2f} +- {logZs.std():.2f}")
-print(f"Estimated evidence with MCMC volume correction: {logZs.mean():.2f} +- {logZs.std():.2f}")
+print(f"Estimated evidence: {logZ_skilling.mean():.2f} +- {logZ_skilling.std():.2f}")
+print(f"Estimated evidence with MCMC volume correction: {logZ_mcmc}") # +- {logZs.std():.2f}")

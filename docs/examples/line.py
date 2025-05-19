@@ -138,8 +138,10 @@ with tqdm.tqdm(desc="Dead points", unit=" dead points") as pbar:
         pbar.update(n_delete)  # Update progress bar
 
 finalised_dead = nsutils.finalise(state, dead)
-print('skilling logX', jnp.mean(nsutils.logX(rng_key, finalised_dead, samples=int(1e3))[0]))
-print('mcmc logX', jnp.mean(nsutils.mcmc_logX(rng_key, finalised_dead, samples=int(1e3))[0]))
+print('skilling logZ', jnp.mean(nsutils.logZ(rng_key, finalised_dead, samples=int(1e3))[0]))
+print('mcmc logZ', jnp.mean(nsutils.logZ(rng_key, finalised_dead, samples=int(1e3), volume_correction=True)))
+print('samper state', state.sampler_state.logZ)
+print('samper state', state.sampler_state.logZ_live)
 # print('blackjax logZ', jnp.mean(nsutils.logZ(rng_key, finalised_dead, samples=int(1e3))))
 # print(finalised_dead.mcmc_chain.position['c'].shape)
 # print(finalised_dead.mcmc_chain.position['m'].shape)

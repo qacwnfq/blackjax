@@ -110,31 +110,29 @@ def logdX(logX):
     return logdX
 
 
-def mcmc_logX(key: jax.random.PRNGKey, dead: NSInfo, samples=100):
-    n_delete = 500
-    t_all = compute_log_compression(key, dead, samples)
-    skilling_logX, skilling_logdX = logX(key, dead, samples, t=t_all)
+def estimate_log_compression_mcmc(dead, n_delete):
     contours = sorted(list(set([l for l in dead.logL_birth.tolist() if not jnp.isinf(l)])))
     contour = contours[1]
     chain_likelihoods = jnp.ravel(dead.mcmc_chain.loglikelihood[:n_delete, :])
     t_mcmc = jnp.log(jnp.sum(chain_likelihoods > contour) / len(chain_likelihoods))
-    print('t_all shape', t_all.shape)
+    return t_mcmc
+
+
+def mcmc_logX(key: jax.random.PRNGKey, dead: NSInfo, samples=100):
+    n_delete = 500
+    t_all = compute_log_compression(key, dead, samples)
+    skilling_logX, skilling_logdX = logX(key, dead, samples, t=t_all)
     t_skilling = jnp.mean(jnp.sum(t_all[:n_delete], axis=0))
-    # correction_t = np.log(jnp.mean(first_iteration_loglikelihoods > first_contour))
-    # print('mcmc_ratio', jnp.mean(first_iteration_loglikelihoods > first_contour))
-    # logX = t.cumsum()
-    # skilling_t = np.cumsum(t[:n_delete]).iloc[-1]
+    t_mcmc = estimate_log_compression_mcmc(dead, n_delete)
     print('t_skilling',t_skilling)
     print('t_mcmc', t_mcmc)
-    # print('rescaling logX by', correction_t / skilling_t)
-    # logX = logX * (correction_t / skilling_t)
-    # logX.name = 'logX'
     mcmc_logX = skilling_logX * (t_mcmc / t_skilling)
     mcmc_logdX = logdX(mcmc_logX)
     return mcmc_logX, mcmc_logdX
 
 
-def log_weights(key: jax.random.PRNGKey, dead: NSInfo, samples=100, beta=1.0):
+
+def log_weights(key: jax.random.PRNGKey, dead: NSInfo, samples=100, beta=1.0, volume_correction=False):
     """
     Calculate the log importance weights for Nested Sampling results.
 
@@ -150,6 +148,8 @@ def log_weights(key: jax.random.PRNGKey, dead: NSInfo, samples=100, beta=1.0):
     beta : float, optional
         The inverse temperature of the log-likelihood to calculate at,
         by default 1.0.
+    volume_correction: bool, optional
+        whether to apply volume correction from MCMC samples
 
     Returns
     -------
@@ -160,7 +160,10 @@ def log_weights(key: jax.random.PRNGKey, dead: NSInfo, samples=100, beta=1.0):
     j = jnp.argsort(dead.logL)
     original_indices = jnp.arange(len(dead.logL))
     dead = jax.tree.map(lambda x: x[j], dead)
-    _, ldX = logX(key, dead, samples)
+    if volume_correction:
+        _, ldX = mcmc_logX(key, dead, samples)
+    else:
+        _, ldX = logX(key, dead, samples)
     ln_w = ldX + beta * dead.logL[..., jnp.newaxis]
     return ln_w[original_indices]
 
@@ -212,7 +215,7 @@ def sample(rng_key, dead_map, n=1000):
     return jax.tree_util.tree_map(lambda leaf: leaf[indices], dead_map.particles)
 
 
-def logZ(key: jax.random.PRNGKey, dead: NSInfo, samples=100, beta=1.0):
+def logZ(key: jax.random.PRNGKey, dead: NSInfo, samples=100, beta=1.0, volume_correction=False):
     """
     Compute the log evidence (log Z) from nested sampling dead points.
 
@@ -231,12 +234,14 @@ def logZ(key: jax.random.PRNGKey, dead: NSInfo, samples=100, beta=1.0):
         Number of Monte Carlo samples to draw per dead point, by default 100.
     beta : float, optional
         The inverse temperature, scaling the log-likelihood (default 1.0).
+    volume_correction: bool, optional
+        whether to apply volume correction from MCMC samples
 
     Returns
     -------
     logZ : jnp.ndarray
         The estimated log evidence.
     """
-    logw = log_weights(key, dead, samples=samples, beta=beta)
+    logw = log_weights(key, dead, samples=samples, beta=beta, volume_correction=volume_correction)
     return jax.scipy.special.logsumexp(logw, axis=0)
 
