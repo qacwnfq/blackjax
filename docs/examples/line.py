@@ -138,8 +138,9 @@ with tqdm.tqdm(desc="Dead points", unit=" dead points") as pbar:
         pbar.update(n_delete)  # Update progress bar
 
 finalised_dead = nsutils.finalise(state, dead)
+print('dead mcmc chain', finalised_dead.mcmc_chain.loglikelihood.shape)
 print('skilling logZ', jnp.mean(nsutils.logZ(rng_key, finalised_dead, samples=int(1e3))[0]))
-print('mcmc logZ', jnp.mean(nsutils.logZ(rng_key, finalised_dead, samples=int(1e3), volume_correction=True)))
+print('mcmc logZ', jnp.mean(nsutils.logZ(rng_key, finalised_dead, samples=int(1e3), volume_correction=True, n_delete=n_delete)))
 print('samper state', state.sampler_state.logZ)
 print('samper state', state.sampler_state.logZ_live)
 # print('blackjax logZ', jnp.mean(nsutils.logZ(rng_key, finalised_dead, samples=int(1e3))))
@@ -172,6 +173,7 @@ data = np.concatenate([
 print('data', data.shape, '\n', data)
 print('comparing shape', dead.mcmc_chain.loglikelihood[:, :].shape)
 first_iteration_loglikelihoods = jnp.ravel(dead.mcmc_chain.loglikelihood[:n_delete, :])
+print('first it shape', first_iteration_loglikelihoods.shape)
 contours = sorted(list(set([l for l in logL_birth.tolist() if not np.isinf(l)])))
 
 # # Get first n_delete mcmc points to estimate volume

@@ -4,7 +4,7 @@ import tqdm
 from jax.scipy.linalg import inv, solve
 
 import blackjax
-from blackjax.ns.utils import logZ
+from blackjax.ns.utils import logZ, finalise
 
 jax.config.update('jax_enable_x64', True)
 jax.config.update('jax_platform_name', 'cpu')
@@ -55,10 +55,10 @@ log_analytic_evidence = compute_logZ(
 # inner kernel tuning, in favour of a simpler UI that loads the vectorized slice sampler
 
 # n_live is the number of live samples to draw initially and maintain through the run
-n_live = 500
+n_live = 1000
 # n_delete is the number of samples to delete each outer kernel iteration, as the inner kernel is parallelised we do this
 # to update all of these points in parallel, useful for GPU acceleration hopefully.
-n_delete = 20
+n_delete = 500
 # num_mcmc_steps is the number of MCMC steps to perform with the inner kernel in order to decorrelate the resampled points
 # we set this conservatively high here at 5 times the dimension of the parameter space
 num_mcmc_steps = d * 5
@@ -100,25 +100,31 @@ def one_step(carry, xs):
 
 dead = []
 # with jax.disable_jit():
-for _ in tqdm.trange(1000):
-    # We track the estimate of the evidence in the live points as logZ_live, and the accumulated sum across all steps in logZ
-    # this gives a handy termination that allows us to stop early
-    if state.sampler_state.logZ_live - state.sampler_state.logZ < -3:  # type: ignore[attr-defined]
-        break
-    (state, rng_key), dead_info = one_step((state, rng_key), None)
-    dead.append(dead_info)
+# for _ in tqdm.trange(1000):
+#     # We track the estimate of the evidence in the live points as logZ_live, and the accumulated sum across all steps in logZ
+#     # this gives a handy termination that allows us to stop early
+#     if state.sampler_state.logZ_live - state.sampler_state.logZ < -3:  # type: ignore[attr-defined]
+#         break
+#     (state, rng_key), dead_info = one_step((state, rng_key), None)
+#     dead.append(dead_info)
+with tqdm.tqdm(desc="Dead points", unit=" dead points") as pbar:
+    while not state.sampler_state.logZ_live - state.sampler_state.logZ < -3:
+        (state, rng_key), dead_info = one_step((state, rng_key), None)
+        dead.append(dead_info)
+        pbar.update(n_delete)  # Update progress bar
 
 # It is now not too bad to remap the list of NSInfos into a single instance
 # note in theory we should include the live points, but assuming we have done things correctly and hit the termination criteria,
 # they will contain negligible weight
-dead = jax.tree.map(lambda *args: jnp.concatenate(args), *dead)
+#dead = jax.tree.map(lambda *args: jnp.concatenate(args), *dead)
+dead = finalise(state, dead)
 
 # From here we can use the utils to compute the log weights and the evidence of the accumulated dead points
 # sampling log weights lets us get a sensible error on the evidence estimate
 logZ_skilling = logZ(rng_key, dead, samples=100)
-logZ_mcmc = logZ(rng_key, dead, samples=100, volume_correction=True)
+logZ_mcmc = logZ(rng_key, dead, samples=100, volume_correction=True, n_delete=n_delete)
 
 print(f"Analytic evidence: {log_analytic_evidence:.2f}")
 print(f"Runtime evidence: {state.sampler_state.logZ:.2f}")  # type: ignore[attr-defined]
 print(f"Estimated evidence: {logZ_skilling.mean():.2f} +- {logZ_skilling.std():.2f}")
-print(f"Estimated evidence with MCMC volume correction: {logZ_mcmc}") # +- {logZs.std():.2f}")
+print(f"Estimated evidence with MCMC volume correction: {logZ_mcmc.mean()} +- {logZ_mcmc.std():.2f}")

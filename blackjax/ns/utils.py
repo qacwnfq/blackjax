@@ -112,14 +112,20 @@ def logdX(logX):
 
 def estimate_log_compression_mcmc(dead, n_delete):
     contours = sorted(list(set([l for l in dead.logL_birth.tolist() if not jnp.isinf(l)])))
+    print('contours', contours[0:5])
     contour = contours[1]
+    print('mcmc comp n_delete', n_delete)
+    print('shape', dead.mcmc_chain.loglikelihood.shape)
+    print('dead mcmcmc up to n_delete', dead.mcmc_chain.loglikelihood[:n_delete, 0:3])
     chain_likelihoods = jnp.ravel(dead.mcmc_chain.loglikelihood[:n_delete, :])
-    t_mcmc = jnp.log(jnp.sum(chain_likelihoods > contour) / len(chain_likelihoods))
+    # print('chain likelihoods', chain_likelihoods.shape, chain_likelihoods)
+    t_mcmc = jnp.sum(chain_likelihoods > contour) / len(chain_likelihoods)
+    print('t_mcmc pre log', t_mcmc)
+    t_mcmc = jnp.log(t_mcmc)
     return t_mcmc
 
 
-def mcmc_logX(key: jax.random.PRNGKey, dead: NSInfo, samples=100):
-    n_delete = 500
+def mcmc_logX(key: jax.random.PRNGKey, dead: NSInfo, n_delete, samples=100):
     t_all = compute_log_compression(key, dead, samples)
     skilling_logX, skilling_logdX = logX(key, dead, samples, t=t_all)
     t_skilling = jnp.mean(jnp.sum(t_all[:n_delete], axis=0))
@@ -132,7 +138,7 @@ def mcmc_logX(key: jax.random.PRNGKey, dead: NSInfo, samples=100):
 
 
 
-def log_weights(key: jax.random.PRNGKey, dead: NSInfo, samples=100, beta=1.0, volume_correction=False):
+def log_weights(key: jax.random.PRNGKey, dead: NSInfo, samples=100, beta=1.0, volume_correction=False, n_delete=None):
     """
     Calculate the log importance weights for Nested Sampling results.
 
@@ -161,7 +167,11 @@ def log_weights(key: jax.random.PRNGKey, dead: NSInfo, samples=100, beta=1.0, vo
     original_indices = jnp.arange(len(dead.logL))
     dead = jax.tree.map(lambda x: x[j], dead)
     if volume_correction:
-        _, ldX = mcmc_logX(key, dead, samples)
+        _, ldX = mcmc_logX(key, dead, n_delete=n_delete, samples=samples)
+        _, ldX2 = logX(key, dead, samples)
+        print('ldX mcmc', ldX.mean())
+        print('ldX skilling', ldX2.mean())
+        print('shapes', ldX2.shape, ldX.shape)
     else:
         _, ldX = logX(key, dead, samples)
     ln_w = ldX + beta * dead.logL[..., jnp.newaxis]
@@ -215,7 +225,7 @@ def sample(rng_key, dead_map, n=1000):
     return jax.tree_util.tree_map(lambda leaf: leaf[indices], dead_map.particles)
 
 
-def logZ(key: jax.random.PRNGKey, dead: NSInfo, samples=100, beta=1.0, volume_correction=False):
+def logZ(key: jax.random.PRNGKey, dead: NSInfo, samples=100, beta=1.0, volume_correction=False, n_delete=None):
     """
     Compute the log evidence (log Z) from nested sampling dead points.
 
@@ -242,6 +252,6 @@ def logZ(key: jax.random.PRNGKey, dead: NSInfo, samples=100, beta=1.0, volume_co
     logZ : jnp.ndarray
         The estimated log evidence.
     """
-    logw = log_weights(key, dead, samples=samples, beta=beta, volume_correction=volume_correction)
+    logw = log_weights(key, dead, samples=samples, beta=beta, volume_correction=volume_correction, n_delete=n_delete)
     return jax.scipy.special.logsumexp(logw, axis=0)
 
