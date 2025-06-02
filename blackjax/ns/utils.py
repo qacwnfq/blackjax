@@ -109,36 +109,7 @@ def logdX(logX):
     logdX = log1mexp(log_diff) + logXp - jnp.log(2)
     return logdX
 
-
-def estimate_log_compression_mcmc(dead, n_delete):
-    contours = sorted(list(set([l for l in dead.logL_birth.tolist() if not jnp.isinf(l)])))
-    print('contours', contours[0:5])
-    contour = contours[1]
-    print('mcmc comp n_delete', n_delete)
-    print('shape', dead.mcmc_chain.loglikelihood.shape)
-    print('dead mcmcmc up to n_delete', dead.mcmc_chain.loglikelihood[:n_delete, 0:3])
-    chain_likelihoods = jnp.ravel(dead.mcmc_chain.loglikelihood[:n_delete, :])
-    # print('chain likelihoods', chain_likelihoods.shape, chain_likelihoods)
-    t_mcmc = jnp.sum(chain_likelihoods > contour) / len(chain_likelihoods)
-    print('t_mcmc pre log', t_mcmc)
-    t_mcmc = jnp.log(t_mcmc)
-    return t_mcmc
-
-
-def mcmc_logX(key: jax.random.PRNGKey, dead: NSInfo, n_delete, samples=100):
-    t_all = compute_log_compression(key, dead, samples)
-    skilling_logX, skilling_logdX = logX(key, dead, samples, t=t_all)
-    t_skilling = jnp.mean(jnp.sum(t_all[:n_delete], axis=0))
-    t_mcmc = estimate_log_compression_mcmc(dead, n_delete)
-    print('t_skilling',t_skilling)
-    print('t_mcmc', t_mcmc)
-    mcmc_logX = skilling_logX * (t_mcmc / t_skilling)
-    mcmc_logdX = logdX(mcmc_logX)
-    return mcmc_logX, mcmc_logdX
-
-
-
-def log_weights(key: jax.random.PRNGKey, dead: NSInfo, samples=100, beta=1.0, volume_correction=False, n_delete=None):
+def log_weights(key: jax.random.PRNGKey, dead: NSInfo, samples=100, beta=1.0):
     """
     Calculate the log importance weights for Nested Sampling results.
 
@@ -154,8 +125,6 @@ def log_weights(key: jax.random.PRNGKey, dead: NSInfo, samples=100, beta=1.0, vo
     beta : float, optional
         The inverse temperature of the log-likelihood to calculate at,
         by default 1.0.
-    volume_correction: bool, optional
-        whether to apply volume correction from MCMC samples
 
     Returns
     -------
@@ -166,14 +135,7 @@ def log_weights(key: jax.random.PRNGKey, dead: NSInfo, samples=100, beta=1.0, vo
     j = jnp.argsort(dead.logL)
     original_indices = jnp.arange(len(dead.logL))
     dead = jax.tree.map(lambda x: x[j], dead)
-    if volume_correction:
-        _, ldX = mcmc_logX(key, dead, n_delete=n_delete, samples=samples)
-        _, ldX2 = logX(key, dead, samples)
-        print('ldX mcmc', ldX.mean())
-        print('ldX skilling', ldX2.mean())
-        print('shapes', ldX2.shape, ldX.shape)
-    else:
-        _, ldX = logX(key, dead, samples)
+    _, ldX = logX(key, dead, samples)
     ln_w = ldX + beta * dead.logL[..., jnp.newaxis]
     return ln_w[original_indices]
 
@@ -210,6 +172,7 @@ def estimate_autocorrelation(TODO):
     # step 1: estimate traditionally
     # step 2: setup model AR(2)
     # step 3: estimate from all chains
+    tau = None
     return tau
 
 
@@ -225,7 +188,7 @@ def sample(rng_key, dead_map, n=1000):
     return jax.tree_util.tree_map(lambda leaf: leaf[indices], dead_map.particles)
 
 
-def logZ(key: jax.random.PRNGKey, dead: NSInfo, samples=100, beta=1.0, volume_correction=False, n_delete=None):
+def logZ(key: jax.random.PRNGKey, dead: NSInfo, samples=100, beta=1.0):
     """
     Compute the log evidence (log Z) from nested sampling dead points.
 
@@ -244,14 +207,38 @@ def logZ(key: jax.random.PRNGKey, dead: NSInfo, samples=100, beta=1.0, volume_co
         Number of Monte Carlo samples to draw per dead point, by default 100.
     beta : float, optional
         The inverse temperature, scaling the log-likelihood (default 1.0).
-    volume_correction: bool, optional
-        whether to apply volume correction from MCMC samples
 
     Returns
     -------
     logZ : jnp.ndarray
         The estimated log evidence.
     """
-    logw = log_weights(key, dead, samples=samples, beta=beta, volume_correction=volume_correction, n_delete=n_delete)
+    logw = log_weights(key, dead, samples=samples, beta=beta)
     return jax.scipy.special.logsumexp(logw, axis=0)
 
+def logZ_mcmc(dead: NSInfo, n_delete, beta=1.0):
+    j = jnp.argsort(dead.logL)
+    original_indices = jnp.arange(len(dead.logL))
+    sorted_dead = jax.tree.map(lambda x: x[j], dead)
+    nlive = compute_nlive(sorted_dead)
+    t = -1 / nlive[:, jnp.newaxis]
+    skilling_logX = jnp.cumsum(t, axis=0)
+
+    contours = jnp.sort(jnp.unique(dead.logL_birth[jnp.isfinite(dead.logL_birth)]))
+    contour = contours[1]
+    # print('chain likelihoods', dead.mcmc_chain.loglikelihood.shape, dead.mcmc_chain.loglikelihood)
+    chain_likelihoods = jnp.ravel(dead.mcmc_chain.loglikelihood[:n_delete, 1:])
+    # print('raveled chain likelihoods', chain_likelihoods.shape, chain_likelihoods)
+    X_mcmc = jnp.mean(chain_likelihoods <= contour)
+    logX_mcmc = jnp.log(X_mcmc)
+    mcmc_logX = jnp.copy(skilling_logX)
+
+    levels = jnp.arange(skilling_logX.shape[0])
+    f = jnp.minimum(1.0, levels/n_delete)
+    delta = (logX_mcmc - skilling_logX[n_delete])[0]
+    mcmc_logX = skilling_logX + (f * delta)[:,jnp.newaxis]
+    mcmc_logdX = logdX(mcmc_logX)
+    logw = mcmc_logdX + beta * sorted_dead.logL[..., jnp.newaxis]
+    logZ =  jax.scipy.special.logsumexp(logw[original_indices], axis=0)[0]
+    err = logZ / jnp.sqrt(n_delete)
+    return logZ, err

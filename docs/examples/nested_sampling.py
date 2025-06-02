@@ -4,13 +4,14 @@ import tqdm
 from jax.scipy.linalg import inv, solve
 
 import blackjax
-from blackjax.ns.utils import logZ, finalise
+from blackjax.ns.utils import logZ, finalise, logZ_mcmc
 
 jax.config.update('jax_enable_x64', True)
 jax.config.update('jax_platform_name', 'cpu')
 
+# rng_key = jax.random.PRNGKey(42)
 rng_key = jax.random.PRNGKey(0)
-d = 20
+d = 10
 
 C = jax.random.normal(rng_key, (d, d)) * 0.1
 like_cov = C @ C.T
@@ -55,13 +56,13 @@ log_analytic_evidence = compute_logZ(
 # inner kernel tuning, in favour of a simpler UI that loads the vectorized slice sampler
 
 # n_live is the number of live samples to draw initially and maintain through the run
-n_live = 1000
+n_live = 50
 # n_delete is the number of samples to delete each outer kernel iteration, as the inner kernel is parallelised we do this
 # to update all of these points in parallel, useful for GPU acceleration hopefully.
-n_delete = 500
+n_delete = int(n_live/2)
 # num_mcmc_steps is the number of MCMC steps to perform with the inner kernel in order to decorrelate the resampled points
 # we set this conservatively high here at 5 times the dimension of the parameter space
-num_mcmc_steps = d * 5
+num_mcmc_steps = d * 100
 
 algo = blackjax.ns.adaptive.nss(
     logprior_fn=prior,
@@ -117,14 +118,15 @@ with tqdm.tqdm(desc="Dead points", unit=" dead points") as pbar:
 # note in theory we should include the live points, but assuming we have done things correctly and hit the termination criteria,
 # they will contain negligible weight
 #dead = jax.tree.map(lambda *args: jnp.concatenate(args), *dead)
+print('done with sampling')
 dead = finalise(state, dead)
 
 # From here we can use the utils to compute the log weights and the evidence of the accumulated dead points
 # sampling log weights lets us get a sensible error on the evidence estimate
 logZ_skilling = logZ(rng_key, dead, samples=100)
-logZ_mcmc = logZ(rng_key, dead, samples=100, volume_correction=True, n_delete=n_delete)
+logZ_mcmc, logZ_mcmc_err = logZ_mcmc(dead, n_delete=n_delete)
 
-print(f"Analytic evidence: {log_analytic_evidence:.2f}")
-print(f"Runtime evidence: {state.sampler_state.logZ:.2f}")  # type: ignore[attr-defined]
-print(f"Estimated evidence: {logZ_skilling.mean():.2f} +- {logZ_skilling.std():.2f}")
-print(f"Estimated evidence with MCMC volume correction: {logZ_mcmc.mean()} +- {logZ_mcmc.std():.2f}")
+print(f"Analytic evidence: {log_analytic_evidence:.4f}")
+# print(f"Runtime evidence: {state.sampler_state.logZ:.2f}")  # type: ignore[attr-defined]
+print(f"Estimated evidence: {logZ_skilling.mean():.4f} +- {logZ_skilling.std():.4f}")
+print(f"Estimated evidence with MCMC volume correction: {logZ_mcmc:.4f} +- {logZ_mcmc_err:.4f}")

@@ -34,6 +34,8 @@ def corrected_logX_fn(self, nsamples=None):
     # numpy.seterr(all='raise')
     if nsamples is None:
         t = np.log(self.nlive / (self.nlive + 1))
+        print('t is', t)
+        print('nlive is', self.nlive)
     else:
         r = np.log(np.random.rand(len(self), nsamples))
         w = self.get_weights()
@@ -140,7 +142,7 @@ with tqdm.tqdm(desc="Dead points", unit=" dead points") as pbar:
 finalised_dead = nsutils.finalise(state, dead)
 print('dead mcmc chain', finalised_dead.mcmc_chain.loglikelihood.shape)
 print('skilling logZ', jnp.mean(nsutils.logZ(rng_key, finalised_dead, samples=int(1e3))[0]))
-print('mcmc logZ', jnp.mean(nsutils.logZ(rng_key, finalised_dead, samples=int(1e3), volume_correction=True, n_delete=n_delete)))
+print('mcmc logZ', nsutils.logZ_mcmc(finalised_dead, n_delete=n_delete)[0])
 print('samper state', state.sampler_state.logZ)
 print('samper state', state.sampler_state.logZ_live)
 # print('blackjax logZ', jnp.mean(nsutils.logZ(rng_key, finalised_dead, samples=int(1e3))))
